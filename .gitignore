@@ -1,0 +1,35 @@
+# PUBLIC repo. When unsure whether a file may be published, ignore it.
+
+# Secrets and env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*-token*
+*secret*.yaml
+!*sealed*secret*.yaml
+.vault_pass*
+age.key
+kubeconfig*
+*.kubeconfig
+
+# Terraform (state holds secrets and resource ids)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+.terraform.lock.hcl.bak
+
+# Ansible
+*.retry
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
