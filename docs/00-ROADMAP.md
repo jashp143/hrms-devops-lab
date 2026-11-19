@@ -246,7 +246,7 @@ Replace each bullet's numbers with your real measurements as you finish each pha
 |---|---|---|
 | Domain + Cloudflare DNS | 🟡 Almost | Bought at Cloudflare, 2FA on; confirm the `nslookup` test, then delete the `test` record |
 | 0 Workstation | ⬜ | |
-| 1 Docker | ⬜ | Next: review the backend `Dockerfile` |
+| 1 Docker | 🟡 In progress | Backend built and tested, in review (layered jar, numeric user, exec entrypoint, labels): 173 MB → ~3 MB per commit. Next: chat, face, crm-web, admin-web. See [cheatsheet](cheatsheets/dockerfile-from-scratch.md) |
 | 2 CI | ⬜ | |
 | 3 Kubernetes | ⬜ | |
 | 4 GitOps | ⬜ | |
