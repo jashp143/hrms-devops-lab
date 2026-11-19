@@ -274,3 +274,41 @@ Total image size didn't change: layering doesn't make images smaller, it makes *
    place that sets it.
 4. **If a number looks wrong, measure it a second way.** A glob in `unzip -l` reported 16 KB of application code;
    a recount with `awk` gave the real 6.8 MB.
+
+### Lessons from the ML service (Python, face recognition)
+
+5. **Read the startup log of the running container.** It showed `Downloading buffalo_l.zip from github.com...`:
+   the ML library fetched a 288 MB model **on every container start**. Slow restarts, and no start at all without
+   internet. Fix: a separate build stage downloads the model once, **verifies its SHA-256**, and the runtime
+   stage copies it to the path the library checks first, so it skips the download.
+
+   ```dockerfile
+   FROM debian:trixie-slim AS models
+   ARG MODEL_URL=https://example.com/model.zip
+   ARG MODEL_SHA256=<sha256 of the file>
+   RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+    && curl -fsSL -o /tmp/model.zip "$MODEL_URL" \
+    && echo "$MODEL_SHA256  /tmp/model.zip" | sha256sum -c - \
+    && mkdir -p /models/m && unzip -q /tmp/model.zip -d /models/m
+   # runtime stage:
+   # COPY --from=models /models/m /home/app/.cache-dir/models/m
+   ```
+6. **`pip list` inside the image finds duplicates.** `opencv-python` (from requirements) and
+   `opencv-python-headless` (pulled in by a dependency) were both installed: ~230 MB of duplicated libraries plus
+   a graphics stack (`libgl1`) a server never uses. Pinning only the headless build cut the system-package layer
+   from 237 MB to 18 MB.
+7. **"Latest Python" means latest the dependencies support.** The newest Python had no wheels yet for the ML
+   runtime, so the image uses the newest version that every dependency builds for. Check PyPI wheel tags
+   (`cp314`, `cp315`...) before choosing.
+8. **Upgrading an ML stack: prove the outputs didn't change.** Embeddings stored in the database came from the old
+   numpy/onnxruntime. Same test image through old and new stacks: cosine similarity 1.000000, max difference
+   0.000045. Without that check, an upgrade could silently stop matching every stored record.
+9. **Test with the network off.** `docker run --network none` proves the image needs nothing from the internet at
+   runtime.
+
+| ML service | Before | After |
+|---|---|---|
+| Model at startup | 288 MB download, every start | baked in, checksum-verified |
+| Starts offline | no | yes |
+| System packages layer | 237 MB | 18 MB |
+| Python | 3.10 (end of life) | 3.14 |
