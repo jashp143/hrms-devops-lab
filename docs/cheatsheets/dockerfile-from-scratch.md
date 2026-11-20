@@ -159,31 +159,42 @@ ENTRYPOINT ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ```dockerfile
 # syntax=docker/dockerfile:1
-FROM node:22-alpine AS deps
+# LTS major + pinned Alpine release
+ARG NODE_IMAGE=node:26-alpine3.24
+
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /src
 COPY package.json package-lock.json ./
-RUN npm ci
+# --ignore-scripts: no git hooks (husky) in a build; cache mount keeps npm's cache out of layers
+RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
 
-FROM node:22-alpine AS build
+FROM ${NODE_IMAGE} AS build
 WORKDIR /src
+ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /src/node_modules ./node_modules
 COPY . .
 RUN npm run build          # next.config: output: 'standalone'
 
-FROM node:22-alpine
+FROM ${NODE_IMAGE}
 WORKDIR /app
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000
-COPY --from=build --chown=1000:1000 /src/.next/standalone ./
-COPY --from=build --chown=1000:1000 /src/.next/static ./.next/static
-COPY --from=build --chown=1000:1000 /src/public ./public
-# 1000 is the image's built-in "node" user. (Dockerfile has no end-of-line comments
-# outside RUN, so this note can't sit on the USER line itself.)
-USER 1000:1000
+RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app -H app
+# Least-changed first: traced node_modules (lockfile) apart from app code (every commit).
+COPY --from=build /src/.next/standalone/node_modules ./node_modules
+COPY --from=build /src/public ./public
+COPY --from=build --exclude=node_modules /src/.next/standalone ./
+COPY --from=build /src/.next/static ./.next/static
+# Code stays root-owned (read-only for the app); only the image cache is writable
+RUN mkdir -p .next/cache && chown 10001:10001 .next/cache
+USER 10001:10001
 EXPOSE 3000
+# Self-only page: no auth, no backend call. busybox wget does a GET.
+HEALTHCHECK CMD wget -q -O /dev/null http://127.0.0.1:3000/login || exit 1
 ENTRYPOINT ["node", "server.js"]
 ```
 
 `npm ci` (not `npm install`) installs exactly what the lockfile says, so builds are reproducible.
+The `npm run build` comment above is for reading only: a real Dockerfile allows comments on their own line.
 
 ### `.dockerignore` (start from this)
 
@@ -335,6 +346,39 @@ Total image size didn't change: layering doesn't make images smaller, it makes *
 | `USER` | name only | `10001:10001` (numeric) |
 | Healthcheck | none | GET `/actuator/health` |
 | JVM on OOM | keeps limping | exits, orchestrator restarts it |
+
+### Lessons from the Node / Next.js web console
+
+14. **Standalone output still mixes dependencies and code.** `.next/standalone` = traced `node_modules`
+    **plus** the server code, in one folder → one 45 MB layer that changes every commit. Copy
+    `standalone/node_modules` first, then the rest with `COPY --exclude=node_modules`: the same idea as
+    Spring's layered jar. **Prove it with the layer test:** change one string, rebuild, compare
+    `docker inspect --format '{{.RootFS.Layers}}'`: 7 of 10 layers identical, the 41.7 MB one included.
+15. **`NEXT_PUBLIC_*` is baked in at build time,** in server code (middleware/proxy) too, not just the browser
+    bundle. A container env var can't flip it; it needs a rebuild. Anything you want to toggle per
+    environment must be a server-only variable (no `NEXT_PUBLIC_` prefix) read at request time.
+16. **A health check must test only this container.** The app had an `/api/health` that calls the backend.
+    The backend's health was DOWN because of an unrelated mail check (dev mail server not running), so a
+    probe on `/api/health` would have marked the web container unhealthy for someone else's problem:
+    a **cascading failure**. Use a self-only route (`/login`) for liveness; dependency checks belong in
+    readiness at most.
+17. **Find the runtime writes even in "stateless" apps.** `next/image` writes optimized images to
+    `.next/cache`. Keep `/app` root-owned and make only that folder writable (an `emptyDir` in Kubernetes).
+18. **Check graceful shutdown, don't assume it.** Time `docker stop`: 0.5 s with exit code **143**
+    (128 + 15 = exited on SIGTERM) means the app handled the signal. **137** (128 + 9 = SIGKILL) after
+    ~10 s means it ignored SIGTERM and Docker killed it: add `--init` / `tini`, or handle the signal.
+19. **"Latest Node" = the current even-numbered LTS.** Even majors become LTS each October; odd majors
+    never do. Check the framework's `engines.node` before bumping.
+20. **Alpine is fine for Node unless a native module needs glibc.** busybox `wget` is built in, so no extra
+    package for the healthcheck. Check native deps (`sharp` ships musl builds; some don't).
+
+| Web console (Next.js) | Before | After |
+|---|---|---|
+| Image size | 308 MB | 309 MB |
+| Pushed per code commit | ~45 MB | ~3.2 MB |
+| `USER` | name only | `1001:1001` (numeric) |
+| App can rewrite its code | yes | no (only `.next/cache` writable) |
+| `docker stop` | not checked | 0.5 s, exit 143 |
 
 ---
 
