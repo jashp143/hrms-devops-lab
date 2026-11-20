@@ -1,6 +1,6 @@
 # Phase 2 notes: CI with GitHub Actions
 
-**Date:** 2026-11-20 · **Status:** done ✅ (branch protection carried forward, section 6)
+**Date:** 2026-11-20 · **Status:** done ✅ (branch protection skipped, section 6)
 
 Every service now has a pipeline that **tests, lints, builds, scans and publishes** on every push to `main`.
 The plan was GitHub Actions for four services and Jenkins for one, to compare them; that was dropped
@@ -152,7 +152,9 @@ running both:
 
 ## 6. Not done (carried forward)
 
-- **Branch protection** on `main` requiring the CI check (the roadmap's "done when").
+- **Branch protection: skipped.** GitHub Free does not enforce rulesets or protection on **private** repos, and the five
+  service repos stay private. The steps are known (ruleset on the default branch: block force push and deletion,
+  require a PR and both CI checks). Practise it on this **public** lab repo once it has a workflow (Phase 3+).
 - **Renovate / Dependabot** for dependencies, actions and base-image digests (Phase 10).
 - **Image signing** (cosign) and SBOM attestations: Phase 6 (supply chain).
 - **`on_event` → lifespan** in the ML service (deprecated in the new FastAPI; works today).
