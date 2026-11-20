@@ -62,6 +62,7 @@ mindmap
 ## 2. Questions to ask before writing a line
 
 Interviewers notice whether you ask these first. Each answer changes the file.
+Section 8 walks through the whole thinking method, step by step.
 
 | Question | Why it matters |
 |---|---|
@@ -312,3 +313,100 @@ Total image size didn't change: layering doesn't make images smaller, it makes *
 | Starts offline | no | yes |
 | System packages layer | 237 MB | 18 MB |
 | Python | 3.10 (end of life) | 3.14 |
+
+### Lessons from the realtime service (Spring Boot + Socket.IO)
+
+10. **A copied pattern carries hidden assumptions.** The healthcheck was copied from another service:
+    `wget --spider`. `--spider` sends **HEAD**, but this service's security config permitted only **GET** on the
+    health URL, so every check got 401 and the container went `unhealthy`. A manual `curl` from the host passed,
+    because curl sends GET. **Test the exact command production runs** (`docker inspect --format
+    '{{json .State.Health}}'`), not something similar. Fix: `wget -q -O /dev/null <url>` (a real GET).
+11. **Same question, different answer.** The first service kept UID 999 (existing files on a volume). This one
+    has no volume, so it uses 10001, and `/app` stays **root-owned**: the app user can read its code but not
+    change it. Its only runtime write is a temp file in `/tmp` (an `emptyDir` in Kubernetes).
+12. **Base images leak labels.** The Ubuntu base left `org.opencontainers.image.version=24.04` on the image,
+    which reads like *our* version. Set every OCI label you care about yourself (`ARG APP_VERSION`).
+13. **Pin the distro too.** `eclipse-temurin:25-jre` can move to a different distro; `25-jre-noble` can't.
+
+| Realtime service | Before | After |
+|---|---|---|
+| Image size | 646 MB | 625 MB |
+| Pushed per code commit | already layered | 1.25 MB (deps 89 MB stay cached) |
+| `USER` | name only | `10001:10001` (numeric) |
+| Healthcheck | none | GET `/actuator/health` |
+| JVM on OOM | keeps limping | exits, orchestrator restarts it |
+
+---
+
+## 8. How to think: the method, step by step
+
+Don't start from a template. Start from **questions about the app**; each answer becomes a line. Templates
+(section 4) are for typing faster *after* the thinking, not instead of it.
+
+### Step 0: study the app before writing anything
+
+| Read | To answer |
+|---|---|
+| Build file (`pom.xml`, `package.json`, `requirements.txt`) | Language, version, build tool, output artifact |
+| App config (`application.yaml`, `next.config`, settings) | Ports, health endpoint, which env vars it reads |
+| Current `docker-compose.yml` / manifests | Volumes, memory limit, existing healthcheck, who consumes the image |
+| `grep` for `tmp`, `Files.`, `open(`, `logs` | Where does it **write** to disk? |
+| Security config | Which endpoints are public, and with which HTTP methods |
+
+The habit: **"What does this app need to build, to run, to write, and to talk to?"** If you can't answer, you
+aren't ready to write the Dockerfile.
+
+### Step 1: building ≠ running → two stages
+
+- What do I need to **build** it? (compiler, package manager, source) → build stage, thrown away.
+- What do I need to **run** it? (runtime + artifact only) → runtime stage.
+
+### Step 2: order layers by how often they change
+
+Docker caches top-down; once a layer changes, **everything below it rebuilds**.
+
+```
+OS + runtime          ← monthly (base image patches)
+packages, user        ← almost never
+dependencies          ← when the lockfile / pom changes
+application code      ← every commit
+```
+
+Interview line: *"A code change ships about 1 MB, not 90."*
+
+### Step 3: who runs it? (assume it gets broken into)
+
+- Not root, and a **numeric** `USER` (Kubernetes `runAsNonRoot` can't resolve names).
+- Can it modify its own code? It shouldn't: leave `/app` root-owned unless it must write there.
+- Where *must* it write? Only those paths are writable (volume, or `emptyDir` with a read-only root filesystem).
+- Existing volume? The UID is a data contract: keep the number the files are owned by.
+
+### Step 4: how does it start and stop?
+
+- **Exec-form `ENTRYPOINT`** → the app is PID 1 and receives `SIGTERM` → graceful shutdown.
+  Shell form → `sh` is PID 1, swallows the signal, and the app is killed after the grace period.
+- **Memory:** the container has a cgroup limit. Make the runtime respect it (`MaxRAMPercentage`,
+  `--max-old-space-size`) and **crash on OOM** so the orchestrator restarts it cleanly.
+
+### Step 5: how does anyone know it's alive?
+
+- Compose: `HEALTHCHECK`. Kubernetes: liveness/readiness probes (ignores `HEALTHCHECK`).
+- The health URL must be reachable **without auth, with the method the probe uses** (lesson 10).
+- Decide what "unhealthy" means: a health endpoint that includes the database or cache marks the container
+  unhealthy when *they* are down. In Kubernetes, point **liveness** at a self-only check (`/health/liveness`)
+  so a cache outage doesn't restart every pod; readiness can include dependencies.
+
+### Step 6: prove it, don't assume it
+
+| Check | Command |
+|---|---|
+| Size before vs after | `docker images` |
+| Which layer is big | `docker history` |
+| User, env, labels | `docker inspect` |
+| Starts, no errors | `docker logs` |
+| Not root | `docker exec <c> id` |
+| Can't write where it shouldn't | `docker exec <c> touch /app/x` → must fail |
+| Healthcheck really passes | `docker inspect --format '{{json .State.Health}}' <c>` |
+| Rollback ready | keep the old image as `:before` before swapping |
+
+When a check fails, **read the error output first** (`.State.Health.Log`): it usually names the cause.
