@@ -13,7 +13,7 @@ industry-standard stack, **on purpose more than the product needs**, to learn ev
 ```mermaid
 flowchart LR
     dev[You: git push] --> gh[GitHub repos<br/>5 services]
-    gh --> ci[CI<br/>GitHub Actions + Jenkins<br/>test, build, Trivy scan]
+    gh --> ci[CI<br/>GitHub Actions<br/>test, build, Trivy scan]
     ci --> reg[(GHCR<br/>container images)]
     ci -->|bump image tag PR| deploy[hrms-deploy repo<br/>Helm values, dev/prod]
     deploy --> argo[Argo CD<br/>in the cluster]
@@ -50,7 +50,6 @@ and traces, while the infrastructure under it is code (Terraform + Ansible).
 | 6 Jira | all | Every phase is an Epic, every task a Story |
 | 7 Docker | 1 | Production Dockerfiles for 5 services |
 | 8 GitHub Actions | 2 | CI for every repo |
-| 8 Jenkins | 2 | CI for one service (face), to compare with Actions |
 | 9 Kubernetes | 3, 5 | k3d cluster, Helm charts, operators, stateful workloads |
 | 10 Terraform | 7, 9 | AWS infra on Floci, then real AWS |
 | 11 Ansible | 8 | Node configuration and k3s install |
@@ -69,7 +68,7 @@ and traces, while the infrastructure under it is code (Terraform + Ansible).
 | Real cloud | **AWS, one weekend** at the end | Prove the Terraform works for real, then destroy. Budget alarm first |
 | Domain | Bought at **Cloudflare Registrar**: `<your-domain>` | Real DNS, real Let's Encrypt certs via DNS-01, ExternalDNS |
 | Registry | **GHCR** (GitHub Container Registry), **private** packages | Images of private code stay private; the cluster pulls with an `imagePullSecret` (read-only token) |
-| CI minutes | GitHub Free: limited Actions minutes/month on private repos | Cache aggressively, run heavy jobs only on `main`/PRs; Jenkins runs on the laptop for free |
+| CI minutes | GitHub Free: limited Actions minutes/month on private repos | Cache aggressively, run heavy jobs only on `main`/PRs |
 | Lab hostnames | `*.lab.<your-domain>` → `127.0.0.1`, DNS-only (grey cloud) | Private IP, so the Cloudflare proxy must stay off |
 
 ---
@@ -82,7 +81,6 @@ hrms-devops-lab/                       ← this repo: own git repo, PUBLIC
   terraform/                           ← Phase 7/9: AWS infra (envs/floci, envs/aws)
   ansible/                             ← Phase 8: inventories, roles, playbooks
   k3d/                                 ← Phase 3: cluster config
-  jenkins/                             ← Phase 2: Jenkins in Docker + config
   scripts/                             ← bootstrap, backup/restore drill
 
 hrms-deploy/                           ← Phase 4: the GitOps repo Argo CD watches (PRIVATE)
@@ -91,7 +89,7 @@ hrms-deploy/                           ← Phase 4: the GitOps repo Argo CD watc
   envs/dev/  envs/prod/                ← per-environment values, image tags pinned
   apps/                                ← Argo CD app-of-apps
 
-Service repos (already exist, PRIVATE) ← get Dockerfile, .github/workflows/, (face) Jenkinsfile
+Service repos (already exist, PRIVATE) ← get Dockerfile, .github/workflows/
   backend, chat, face, crm-web, admin-web
 ```
 
@@ -121,14 +119,13 @@ Each phase has: **Goal**, **Hands-on**, **You learn**, **Done when** (a check yo
 - **Done when:** every image builds, runs as non-root, and a size table (before/after) is in `docs/`.
 - **Interview story:** "I cut the backend image from X MB to Y MB and removed root, here's how."
 
-### Phase 2: CI: GitHub Actions + Jenkins
+### Phase 2: CI: GitHub Actions
 - **Goal:** every push is tested, built, scanned and published automatically.
 - **Hands-on:** Actions workflow per repo: test → build → **Trivy** scan (fail on CRITICAL) → push to GHCR,
-  tagged with the commit SHA; dependency caching; branch protection requiring CI green. Jenkins in Docker
-  with a declarative `Jenkinsfile` doing the same for the face service.
+  tagged with the commit SHA; dependency caching; branch protection requiring CI green.
 - **You learn:** pipelines as code, runners/agents, secrets in CI, immutable tags, supply-chain scanning.
-- **Done when:** a PR shows green checks; GHCR has SHA-tagged images; Jenkins builds face from a webhook or poll.
-- **Interview story:** "Actions vs Jenkins: what I'd pick and why."
+- **Done when:** a PR shows green checks; GHCR has SHA-tagged images for all five services.
+- **Interview story:** "The scan gate caught real CRITICALs on day one (Spring, Next.js RCEs, anyio), and Linux-only test bugs Windows hid."
 
 ### Phase 3: Kubernetes
 - **Goal:** the HRMS running on a multi-node cluster, reachable over real HTTPS.
@@ -228,7 +225,7 @@ of the board belong in your portfolio.
 
 - Containerised 5 polyglot microservices (Java/Spring, Python/FastAPI, Next.js) with hardened multi-stage
   images; cut image size by X%.
-- Built CI with GitHub Actions and Jenkins: tests, Trivy scanning and SHA-tagged images to GHCR.
+- Built CI with GitHub Actions for five services: tests, Trivy scanning and SHA-tagged images to GHCR.
 - Ran the platform on Kubernetes with Helm, Ingress-NGINX, cert-manager (Let's Encrypt DNS-01) and ExternalDNS.
 - Implemented GitOps with Argo CD (app-of-apps, dev/prod promotion, Git-based rollback).
 - Operated PostgreSQL + pgvector with CloudNativePG: replication, automated backups, tested restores and failover.
