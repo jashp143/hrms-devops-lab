@@ -246,7 +246,7 @@ Replace each bullet's numbers with your real measurements as you finish each pha
 |---|---|---|
 | Domain + Cloudflare DNS | 🟡 Almost | Bought at Cloudflare, 2FA on; confirm the `nslookup` test, then delete the `test` record |
 | 0 Workstation | ⬜ | |
-| 1 Docker | 🟡 In progress | Backend done (layered jar, numeric user, exec entrypoint, labels): 173 MB → ~3 MB per commit. Face done (model baked in, Python 3.14, headless OpenCV, embeddings verified identical). Next: chat, crm-web, admin-web. See [cheatsheet](cheatsheets/dockerfile-from-scratch.md) |
+| 1 Docker | ✅ Done | All 5 images: numeric non-root, healthy, graceful stop. Per commit 173 MB → ~3 MB (backend), 45 → 3.2 MB (web). ML model baked in. See [phase notes](phase-1-notes.md) and [cheatsheet](cheatsheets/dockerfile-from-scratch.md) |
 | 2 CI | ⬜ | |
 | 3 Kubernetes | ⬜ | |
 | 4 GitOps | ⬜ | |
