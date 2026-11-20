@@ -244,7 +244,7 @@ Replace each bullet's numbers with your real measurements as you finish each pha
 | Domain + Cloudflare DNS | 🟡 Almost | Bought at Cloudflare, 2FA on; confirm the `nslookup` test, then delete the `test` record |
 | 0 Workstation | ✅ Done | WSL Ubuntu 24.04 capped at 10 GB, 13 pinned + checksum-verified tools, `check-tools.sh` green, gitleaks pre-commit. See [phase notes](phase-0-notes.md) and [bash cheatsheet](cheatsheets/bash-scripting.md) |
 | 1 Docker | ✅ Done | All 5 images: numeric non-root, healthy, graceful stop. Per commit 173 MB → ~3 MB (backend), 45 → 3.2 MB (web). ML model baked in. See [phase notes](phase-1-notes.md) and [cheatsheet](cheatsheets/dockerfile-from-scratch.md) |
-| 2 CI | ⬜ | |
+| 2 CI | ✅ Done | GitHub Actions for all 5: tests, hadolint, Trivy gate (fixable CRITICAL), SHA-tagged images in GHCR. Gate found 14 CRITICALs on first runs, all fixed. Branch protection carried forward. See [phase notes](phase-2-notes.md) |
 | 3 Kubernetes | ⬜ | |
 | 4 GitOps | ⬜ | |
 | 5 Secrets + state | ⬜ | |
